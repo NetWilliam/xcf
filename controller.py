@@ -7,10 +7,8 @@ import pprint
 from mako.template import Template
 from conf import *
 import model
-from oauth2 import *
 from conf.oauth_setting import *
 from socialoauth import SocialSites, SocialAPIError
-#from socialoauth import SoicalSites
 
 class statics(object):
     def GET(self, file_name, content_type):
@@ -125,70 +123,62 @@ class modify:
             local_auth_c.modLocalAuth(local_auth.local_auth_id, profile_id, new_password)
         return 'modify ok!'
 
-
-class callback(object):
-    def __init__(self, **kwargs):
-        self.kwargs = kwargs
-    def getTokenAndExpires(self):
-        #发出请求, 从OAuth服务器端获得token和expires
-        pass
-    def getReqURL(self, base_url, **kwargs):
-        #只能用来拼GET串......
-        if base_url is None:
-            raise Exception('missing required key base_url')
-        #for items in kwargs.items():
-        url_str = base_url + '?'
-        for k, v in kwargs.iteritems():
-            url_str = url_str + ("%s=%s" % (k, v)) + '&'
-        return url_str[0:-1]
-    def makePostReq(self, base_url, **kwargs):
-        req = urllib2.Request(base_url, data=urllib.urlencode(kwargs))
-        try:
-            page = urllib2.urlopen(req)
-            return eval(page.read(-1))
-        except urllib2.HTTPError, e:
-            print "Error Code:", e.code
-            #return "Error Code:%s" % e.code
-        except urllib2.URLError, e:
-            print "Error Reason", e.reason
-            #return "Error Reason:%s" % e.reason
-        return None
-
 class db_auth:
     def GET(self):
-        session = web.config._session
-        if session.login:
-            profile_id = session.profile_id
-        else:
-            profile_id = 0
-        douban_oauth = DoubanOauth(profile_id)
-        douban_oauth.redirectToAuth()
-        raise web.seeother('/')
+        socialsites = SocialSites(SOCIALOAUTH_SITES)
+        ss = socialsites.list_sites_class()
+        site = socialsites.get_site_object_by_class(ss[2])
+        url = site.authorize_url
+        raise web.seeother(url)
     POST = GET
 
-class db_callback(callback):
-    def __init__(self):
-        super(db_callback, self).__init__()
+class db_callback():
     def GET(self):
-        douban_oauth = DoubanOauth()
-        profile_id, token, expires, server_user_id = douban_oauth.authCallback()
+        sitename = 'db_callback'
+        code = web.input().get('code')
+        logger = web.ctx.environ['wsgilog.logger']
+        if code is None:
+            logger.warning("wb guale guale guale, no code")
+        socialsites = SocialSites(SOCIALOAUTH_SITES)
+        s = socialsites.get_site_object_by_name(sitename)
+        try:
+            s.get_access_token(code)
+        except SocialAPIError as e:
+            logger = web.ctx.environ['wsgilog.logger']
+            logger.warning("wb guale guale guale, get_token_error")
+
         session = web.config._session
-        session.oauth_access_token      = token
-        session.oauth_server_user_id    = server_user_id
-        session.oauth_expires           = expires
-        session.from_where              = 'douban'
-        raise web.seeother('/otherpassportbind?profile_id=%d' % profile_id)
+        session.from_where = 'douban'
+        oauth_server_user_id = ('douban-%s' % s.uid)
+
+        oauth_c = model.OauthClass()
+        oauth_id, oauth_profile_id = oauth_c.getBindUserId(oauth_server_user_id)
+        profile_id = session.profile_id
+
+        if (not oauth_id is None) and (not oauth_profile_id is None):
+            if profile_id == 0 or profile_id == oauth_profile_id:
+                # 三方账户已经绑定, 并且当前用户尚未登录
+                # 已经绑定本地账户的用户通过三方账户登录
+                session.profile_id  = oauth_profile_id
+                session.login       = True
+                raise web.seeother('/welcome')
+            else:
+                # 三方账户已经绑定, 试图再绑定, 抛出错误
+                #raise web.seeother('/rebind_error')
+                return '该三方账户已经绑定, 无法重复绑定'
+
+        session.oauth_access_token      = s.access_token
+        session.oauth_server_user_id    = oauth_server_user_id
+        session.oauth_expires           = s.expires_in
+        raise web.seeother('otherpassportbind?profile_id=%d' % session.profile_id)
 
 class wb_auth:
     def GET(self):
-        url = ''
-        t1 = (SOCIALOAUTH_SITES[0], )
-        socialsites = SocialSites(t1)
-        for s in socialsites.list_sites_class():
-            site = socialsites.get_site_object_by_class(s)
-            url = site.authorize_url
+        socialsites = SocialSites(SOCIALOAUTH_SITES)
+        ss = socialsites.list_sites_class()
+        site = socialsites.get_site_object_by_class(ss[0])
+        url = site.authorize_url
         raise web.seeother(url)
-        return url
     POST = GET
 
 class wb_callback:
@@ -206,8 +196,6 @@ class wb_callback:
             logger = web.ctx.environ['wsgilog.logger']
             logger.warning("wb guale guale guale, get_token_error")
 
-        logger.warning('haha success uid:%s' % s.uid)
-        logger.warning('dir(s):%s' % dir(s))
         session = web.config._session
         session.from_where = 'weibo'
         oauth_server_user_id = ('weibo-%s' % s.uid)
@@ -217,16 +205,70 @@ class wb_callback:
         profile_id = session.profile_id
 
         if (not oauth_id is None) and (not oauth_profile_id is None):
-            if profile_id == 0:
+            if profile_id == 0 or profile_id == oauth_profile_id:
+                # 三方账户已经绑定, 并且当前用户尚未登录
+                # 已经绑定本地账户的用户通过三方账户登录
                 session.profile_id  = oauth_profile_id
                 session.login       = True
                 raise web.seeother('/welcome')
+            else:
+                # 三方账户已经绑定, 试图再绑定, 抛出错误
+                #raise web.seeother('/rebind_error')
+                return '该三方账户已经绑定, 无法重复绑定'
 
         session.oauth_access_token      = s.access_token
         session.oauth_server_user_id    = oauth_server_user_id
         session.oauth_expires           = s.expires_in
         raise web.seeother('otherpassportbind?profile_id=%d' % session.profile_id)
 
+class qq_auth:
+    def GET(self):
+        socialsites = SocialSites(SOCIALOAUTH_SITES)
+        ss = socialsites.list_sites_class()
+        site = socialsites.get_site_object_by_class(ss[1])
+        url = site.authorize_url
+        raise web.seeother(url)
+    POST = GET
+
+class qq_callback:
+    def GET(self):
+        sitename = 'qq_callback'
+        code = web.input().get('code')
+        logger = web.ctx.environ['wsgilog.logger']
+        if code is None:
+            logger.warning("wb guale guale guale, no code")
+        socialsites = SocialSites(SOCIALOAUTH_SITES)
+        s = socialsites.get_site_object_by_name(sitename)
+        try:
+            s.get_access_token(code)
+        except SocialAPIError as e:
+            logger = web.ctx.environ['wsgilog.logger']
+            logger.warning("wb guale guale guale, get_token_error")
+
+        session = web.config._session
+        session.from_where = 'qqzone'
+        oauth_server_user_id = ('qqzone-%s' % s.uid)
+
+        oauth_c = model.OauthClass()
+        oauth_id, oauth_profile_id = oauth_c.getBindUserId(oauth_server_user_id)
+        profile_id = session.profile_id
+
+        if (not oauth_id is None) and (not oauth_profile_id is None):
+            if profile_id == 0 or profile_id == oauth_profile_id:
+                # 三方账户已经绑定, 并且当前用户尚未登录
+                # 已经绑定本地账户的用户通过三方账户登录
+                session.profile_id  = oauth_profile_id
+                session.login       = True
+                raise web.seeother('/welcome')
+            else:
+                # 三方账户已经绑定, 试图再绑定, 抛出错误
+                #raise web.seeother('/rebind_error')
+                return '该三方账户已经绑定, 无法重复绑定'
+
+        session.oauth_access_token      = s.access_token
+        session.oauth_server_user_id    = oauth_server_user_id
+        session.oauth_expires           = s.expires_in
+        raise web.seeother('otherpassportbind?profile_id=%d' % session.profile_id)
         
 class otherpassportbind:
     def check_session(self):
@@ -253,6 +295,9 @@ class otherpassportbind:
             return tt.render(from_where = session.from_where)
         else:
             #如果已经存在本地账号, 则将本地账号的绑定值增加
+            oauth_c     = model.OauthClass()
+            oauth_id    = oauth_c.addOauth(profile_id, session.from_where, session.oauth_access_token,
+                                           session.oauth_server_user_id, session.oauth_expires)
             if self.incBindCnt(profile_id):
                 return '绑定第三方账号成功'
             else:
@@ -299,9 +344,7 @@ class authorize:
             return '请登录后重试'
         profile_id = session.profile_id
 
-        auth_link       = ['https://www.douban.com/service/auth2/auth?client_id=06774723affa83641365d56b0fef8a2c&redirect_uri=http://nwmlwb.iask.in/db_callback&response_type=code&scope=douban_basic_common',
-                           'qqzone',
-                           'weibo']
+        auth_link       = ['db_auth', 'qq_auth', 'wb_auth']
         #解除某个第三方应用的绑定, 若最后一个第三方账号已经被解除, 则该账号视为被注销, 无法登录
         auth_list_all   = ['douban', 'qqzone', 'weibo']
         auth_already    = []
@@ -332,7 +375,23 @@ class authorize:
         profile_id = session.profile_id
         postdata = web.input()
         logger = web.ctx.environ['wsgilog.logger']
-        logger.warning("authorize auth_from:%s" % postdata.get('auth_from'))
+        auth_from_list = ['douban', 'qqzone', 'weibo']
+        # 这个地方会不会出现两个豆瓣账号绑定同一个本地账号的问题呢?... 有空需要思考一下
+        # 假设一个本地账号肯定只有一个三方账号
+        auth_from   = postdata.get('auth_from')
+        profile_id  = session.profile_id
+        oauth_c     = model.OauthClass()
+        oauth       = oauth_c.getOauthByProfileIdAndAuthFrom(profile_id, auth_from)
+        #logger.warning('sql:%s' % oauth)
+        oauth_c.delOauth(oauth.oauth_id)
+
+        profile_c   = model.ProfileClass()
+        profile     = model.Profile(profile_id)
+        profile_c.modProfile(profile.profile_id, profile.profile_bind_cnt-1,
+                             profile.profile_username, profile.profile_welcome)
+
+        #logger.warning("authorize auth_from:%s" % postdata.get('auth_from'))
+        raise web.seeother('/exit')
 
 
 class authorize_mod:

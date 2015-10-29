@@ -54,6 +54,17 @@ class OauthClass(ModelBase):
             auth_info['oauth_expires']          = row[5]
             auth_info_list.append(auth_info)
         return auth_info_list
+    def getOauthByProfileIdAndAuthFrom(self, profile_id, auth_from):
+        sql_cmd = ('SELECT oauth_id FROM oauth WHERE oauth_profile_id=%d AND oauth_from="%s"'
+                    % (profile_id, auth_from))
+        #return sql_cmd
+        self.cursor.execute(sql_cmd)
+        self.db_con.commit()
+        res = self.cursor.fetchall()
+        if len(res) <= 0:
+            return None
+        rarr = res[0]
+        return Oauth(rarr[0])
 
 
 class Oauth(ModelBase):
@@ -71,8 +82,6 @@ class Oauth(ModelBase):
         self.oauth_access_token     = rarr[3]
         self.oauth_server_user_id   = rarr[4]
         self.oauth_expires          = rarr[5]
-    def get_come_from(self):
-        return self.oauth_form
 
 if __name__ == "__main__":
     oa = OauthClass()

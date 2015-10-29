@@ -13,7 +13,7 @@ db_oauth_url    = 'https://www.douban.com/service/auth2'
 db_callback     = host + '/db_callback'
 db_token_back   = host + '/db_token_back'
 
-qq_app_key      = 123
-qq_app_secret   = 123
+qq_app_key      = 101264646
+qq_app_secret   = 'd4b682630404e371e0f10bcb18b127bd'
 qq_callback     = host + '/qq_callback'
 qq_token_back   = host + '/qq_token_back'
