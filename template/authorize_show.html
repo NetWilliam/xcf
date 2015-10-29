@@ -25,6 +25,26 @@
       <script src="//cdn.bootcss.com/html5shiv/3.7.2/html5shiv.min.js"></script>
       <script src="//cdn.bootcss.com/respond.js/1.4.2/respond.min.js"></script>
     <![endif]-->
+    <script src="http://code.jquery.com/jquery-latest.js"></script>
+    <script>
+    function revoke_auth(auth_name)
+    {
+        //用户只绑定了一个三方账号, 这个时候取消绑定要给出提示
+        if ($('#bind_cnt').val() == "1")
+        {
+            var ans = confirm('这是您绑定的最后一个第三方账号, 取消后本账号将被注销, 无法再使用, 您确定要继续吗?');
+            if (ans == false)
+                return false;
+        }
+        $.post("authorize", {auth_from: auth_name}
+        ).done(function(){
+            alert("取消成功");
+            $.get("exit");
+            self.location = 'http://nwmlwb.iask.in/';}
+        ).fail(function(){alert("取消绑定失败, 请重试")});
+        return true;
+    }
+    </script>
   </head>
 
   <body>
@@ -41,8 +61,41 @@
         <a href="modify">修改我的信息</a>
     </p>
     <p>
-        <a href="authorizes">查看我的第三方授权信息</a>
+    <input type="hidden" id="bind_cnt" value="${len(auth_already)}"/>
+    <h3>已绑定</h3>
+    % for auth_info in auth_list:
+        <div class="row">
+        <div class="col-md-4">
+        <label>${auth_info['oauth_from']}</label>
+        </div>
+
+        <div class="col-md-4">
+        <span>过期时间: </span>
+        </div>
+
+        <div class="col-md-4">
+        <a href="javascript:revoke_auth('${auth_info['oauth_from']}')">取消绑定</a>
+        </div>
+        </div>
+    % endfor
     </p>
+
+    <p>
+    <h3>未绑定</h3>
+    % for no_auth_info in no_auth_list:
+    <div class="row">
+        <div class="col-md-4">
+        <label>${no_auth_info['auth_name']}</label>
+        </div>
+        <div class="col-md-4">
+        <a href="${no_auth_info['auth_url']}">点击绑定${no_auth_info['auth_name']}</a>
+        </div>
+        <div class="col-md-4">
+        </div>
+    </div>
+    % endfor
+    </p>
+
     <p>
         <a href="exit">退出登录</a>
     </p>

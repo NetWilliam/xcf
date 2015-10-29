@@ -1,4 +1,7 @@
 from oauth_base import *
+import urllib, urllib2
+from logging import warning as w_log
+import web
 
 class DoubanOauth(OauthBase):
     def __init__(self):

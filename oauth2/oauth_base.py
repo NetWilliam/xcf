@@ -20,8 +20,17 @@ class OauthBase(object):
         self.callback = callback
     def __del__(self):
         pass
+    def makePostReq(self, base_url, **kwargs):
+        req = urllib2.Request(base_url, data=urllib.urlencode(kwargs))
+        try:
+            page = urllib2.urlopen(req)
+            return eval(page.read(-1))
+        except urllib2.HTTPError, e:
+            print "Error Code:", e.code
+        except urllib2.URLError, e:
+            print "Error Reason", e.reason
+        return None
     def getAuthorizeURL(self):
-        print 'father here'
         pass
     def saveAuthorizeInfo(self):
         pass

@@ -35,7 +35,7 @@ urls = (
     '/db_callback', 'db_callback',
     '/otherpassportbind', 'otherpassportbind',
     '/exit', 'exit',
-    '/authorize_show', 'authorize_show',
+    '/authorize', 'authorize',
     '/authorize_mod', 'authorize_mod',
 )
 

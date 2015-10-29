@@ -105,13 +105,16 @@ class modify:
         new_profile_username = postdata.get('profile_username').encode('utf-8')
         new_profile_welcome = postdata.get('profile_welcome').encode('utf-8')
         new_password = postdata.get('local_auth_password')
+        
+        bind_cnt = model.Profile(profile_id).profile_bind_cnt
+        
         if new_password == "":
             #do not modify pswd
             profile_c = model.ProfileClass()
-            profile_c.modProfile(profile_id, new_profile_username, new_profile_welcome)
+            profile_c.modProfile(profile_id, bind_cnt, new_profile_username, new_profile_welcome)
         else:
             profile_c = model.ProfileClass()
-            profile_c.modProfile(profile_id, new_profile_username, new_profile_welcome)
+            profile_c.modProfile(profile_id, bind_cnt, new_profile_username, new_profile_welcome)
 
             local_auth_c = model.LocalAuthClass()
             local_auth = local_auth_c.getLocalAuthByProfileId(profile_id)
@@ -171,6 +174,13 @@ class db_callback(callback):
         oauth_c = model.OauthClass()
         oauth_id, oauth_profile_id = oauth_c.getBindUserId(oauth_server_user_id)
         session = web.config._session
+
+
+        ###
+        ### 此段逻辑有些混乱, 需要再看看
+        ###
+        ### 豆瓣来请求我
+        ###
         if oauth_id is None and oauth_profile_id is None:
             #该用户的第三方账户尚未绑定本地账号, 转跳到绑定页面绑定之
             session.oauth_access_token      = oauth_access_token
@@ -180,7 +190,7 @@ class db_callback(callback):
             session.bind_cnt                = -1
             raise web.seeother('/otherpassportbind')
         else:
-            #该用户的第三方账号已经绑定本地账号, 不允许重复绑定
+            #该用户的第三方账号已经绑定本地账号
             if session.login and session.profile_id != oauth_profile_id:
                 #试图将一个三方账号重复绑定, 这种情况直接拒绝
                 raise web.seeother('fault.html')
@@ -221,14 +231,15 @@ class otherpassportbind:
             tt = Template(filename = './template/otherpassportbind.html')
             return tt.render(from_where = session.from_where)
         else:
-            #如果已经存在本地账号, 则将本地账号的值增加
+            #如果已经存在本地账号, 则将本地账号的绑定值增加
             if self.incBindCnt(session.profile_id):
                 return '绑定第三方账号成功'
             else:
                 return '绑定第三方账号失败, 请重试'
 
     def POST(self):
-        #修改oauth表跟profile表
+        #新增profile表跟local_auth表建立本地账号
+        #新增auth表
         session = self.check_session()
         postdata = web.input()
         logger = web.ctx.environ['wsgilog.logger']
@@ -255,22 +266,53 @@ class exit:
     def GET(self):
         session = web.config._session
         session.kill()
+        raise web.seeother('/')
         return '已经退出'
     POST = GET
 
-class authorize_show:
+class authorize:
     def GET(self):
+        #显示所有的第三方账号的绑定情况
         session = web.config._session
         if not session.login:
             return '请登录后重试'
-        auth_list = []
         profile_id = session.profile_id
-        
+
+        auth_link       = ['https://www.douban.com/service/auth2/auth?client_id=06774723affa83641365d56b0fef8a2c&redirect_uri=http://nwmlwb.iask.in/db_callback&response_type=code&scope=douban_basic_common',
+                           'qqzone',
+                           'weibo']
+        #解除某个第三方应用的绑定, 若最后一个第三方账号已经被解除, 则该账号视为被注销, 无法登录
+        auth_list_all   = ['douban', 'qqzone', 'weibo']
+        auth_already    = []
+
+        oauth_c = model.OauthClass()
+        auth_list = oauth_c.getAuthInfoByProfileId(profile_id)
+        no_auth_list = []
+
+        for auth in auth_list:
+            auth_already.append(auth['oauth_from'])
+        for i in xrange(len(auth_list_all)):
+            if auth_list_all[i] not in auth_already:
+                no_auth_info = {}
+                no_auth_info['auth_url'] = auth_link[i]
+                no_auth_info['auth_name'] = auth_list_all[i]
+                no_auth_list.append(no_auth_info)
 
         tt = Template(filename = './template/authorize_show.html')
-        return tt.render()
-        pass
-    POST = GET
+        return tt.render(auth_list = auth_list, no_auth_list = no_auth_list,
+                         auth_list_all = auth_list_all, auth_already = auth_already,
+                         profile_id = session.profile_id, profile_welcome = session.welcome,
+                         profile_username = session.username)
+    def POST(self):
+        #解除某个第三方应用的绑定, 若最后一个第三方账号已经被解除, 则该账号视为被注销, 无法登录
+        session = web.config._session
+        if not session.login:
+            return '请登录后重试'
+        profile_id = session.profile_id
+        postdata = web.input()
+        logger = web.ctx.environ['wsgilog.logger']
+        logger.warning("authorize auth_from:%s" % postdata.get('auth_from'))
+
 
 class authorize_mod:
     def GET(self):

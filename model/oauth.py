@@ -37,6 +37,23 @@ class OauthClass(ModelBase):
             return None, None
         rarr = res[0]
         return rarr
+    def getAuthInfoByProfileId(self, profile_id):
+        sql_cmd = ('SELECT * FROM oauth WHERE oauth_profile_id=%d ORDER BY oauth_from' % profile_id)
+        self.cursor.execute(sql_cmd)
+        self.db_con.commit()
+
+        auth_info_list = []
+        res = self.cursor.fetchall()
+        for row in res:
+            auth_info = {}
+            auth_info['oauth_id']               = row[0]
+            auth_info['oauth_profile_id']       = row[1]
+            auth_info['oauth_from']             = row[2]
+            auth_info['oauth_access_token']     = row[3]
+            auth_info['oauth_server_user_id']   = row[4]
+            auth_info['oauth_expires']          = row[5]
+            auth_info_list.append(auth_info)
+        return auth_info_list
 
 
 class Oauth(ModelBase):
@@ -59,19 +76,24 @@ class Oauth(ModelBase):
 
 if __name__ == "__main__":
     oa = OauthClass()
-    usr_id = oa.addOauth(1, 'ik', '你好', 'mlxid', 1000)
-    oa.modOauth(usr_id, 1, 'douban', '123abc', '1000', 3600)
-    print 'the new oa id is:', usr_id
-    oac = Oauth(1000)
-    oae = Oauth(1008)
-    print oae.oauth_access_token.decode('utf-8')
+    #usr_id = oa.addOauth(1, 'ik', '你好', 'mlxid', 1000)
+    #oa.modOauth(usr_id, 1, 'douban', '123abc', '1000', 3600)
+    #print 'the new oa id is:', usr_id
+    oae = Oauth(1000)
+    #oac = Oauth(1008)
+    #print oae.oauth_access_token.decode('utf-8')
     try:
         oad = Oauth(111111111)
     except Exception, e:
         print e
 
-    oid, opid = oa.getBindUserId('123abc', '1000')
+    oid, opid = oa.getBindUserId('1000')
     print oid, opid
-    oid, opid = oa.getBindUserId('123abc', '10000')
+    oid, opid = oa.getBindUserId('10000')
     print oid, opid
+    
+    oax = Oauth(1000)
+    oa.modOauth(oax.oauth_id, oax.oauth_profile_id, '黄浦江', oax.oauth_access_token, oax.oauth_server_user_id, oax.oauth_expires)
+    print oa.getAuthInfoByProfileId(1000)
+    oa.modOauth(oax.oauth_id, oax.oauth_profile_id, 'douban', oax.oauth_access_token, oax.oauth_server_user_id, oax.oauth_expires)
 

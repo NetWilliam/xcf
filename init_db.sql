@@ -1,5 +1,5 @@
 DROP DATABASE IF EXISTS xcf;
-CREATE DATABASE xcf;
+CREATE DATABASE xcf DEFAULT charset utf8 COLLATE utf8_general_ci;
 USE xcf;
 
 CREATE TABLE profile (
