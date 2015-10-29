@@ -2,8 +2,8 @@
 
 host = 'http://nwmlwb.iask.in'
 
-wb_app_key      = 1828234834
-wb_app_secret   = 'e50daab687d5b279fdbdc4afff41da51'
+wb_app_key      = 2599266903
+wb_app_secret   = '9b6028ce1305242c64137c121bebb092'
 wb_callback     = host + '/wb_callback'
 wb_token_back   = host + '/wb_token_back'
 

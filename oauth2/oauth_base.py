@@ -2,8 +2,12 @@ import os
 import sys
 sys.path.append('/home/pi/source/xcf')
 
+import urllib, urllib2
+from logging import warning as w_log
+import web
 from conf import *
 import model
+from mako.template import Template
 
 OAUTH_DEF = {'douban': 0, 'weibo': 1, 'qqzone': 2}
 OAUTH_FROM = ['douban', 'weibo', 'qqzone',]
@@ -18,13 +22,14 @@ class OauthBase(object):
         self.oauth_from = oauth_from
         self.oauth_server_addr = oauth_server_addr
         self.callback = callback
+        self.logger = web.ctx.environ['wsgilog.logger']
     def __del__(self):
         pass
     def makePostReq(self, base_url, **kwargs):
         req = urllib2.Request(base_url, data=urllib.urlencode(kwargs))
         try:
             page = urllib2.urlopen(req)
-            return eval(page.read(-1))
+            return page.read(-1)
         except urllib2.HTTPError, e:
             print "Error Code:", e.code
         except urllib2.URLError, e:

@@ -7,6 +7,10 @@ import pprint
 from mako.template import Template
 from conf import *
 import model
+from oauth2 import *
+from conf.oauth_setting import *
+from socialoauth import SocialSites, SocialAPIError
+#from socialoauth import SoicalSites
 
 class statics(object):
     def GET(self, file_name, content_type):
@@ -121,6 +125,7 @@ class modify:
             local_auth_c.modLocalAuth(local_auth.local_auth_id, profile_id, new_password)
         return 'modify ok!'
 
+
 class callback(object):
     def __init__(self, **kwargs):
         self.kwargs = kwargs
@@ -149,69 +154,83 @@ class callback(object):
             #return "Error Reason:%s" % e.reason
         return None
 
+class db_auth:
+    def GET(self):
+        session = web.config._session
+        if session.login:
+            profile_id = session.profile_id
+        else:
+            profile_id = 0
+        douban_oauth = DoubanOauth(profile_id)
+        douban_oauth.redirectToAuth()
+        raise web.seeother('/')
+    POST = GET
 
 class db_callback(callback):
     def __init__(self):
         super(db_callback, self).__init__()
-    def getTokenAndExpires(self, **kwargs):
-        code = kwargs['code']
-        post_url = DB_OAUTH_URL + '/token'
-        print 'douban post_url:', post_url
-        ret = self.makePostReq(post_url, code = code, client_id = DB_APP_KEY,
-                               client_secret = DB_APP_SECRET, redirect_uri = DB_CALLBACK,
-                               grant_type = 'authorization_code')
-        if ret is None:
-            #请求失败处理
-            raise web.seeother('fault.html')
+    def GET(self):
+        douban_oauth = DoubanOauth()
+        profile_id, token, expires, server_user_id = douban_oauth.authCallback()
+        session = web.config._session
+        session.oauth_access_token      = token
+        session.oauth_server_user_id    = server_user_id
+        session.oauth_expires           = expires
+        session.from_where              = 'douban'
+        raise web.seeother('/otherpassportbind?profile_id=%d' % profile_id)
 
-        oauth_access_token      = ret['access_token']
-        oauth_expires           = ret['expires_in']
-        server_user_id          = ret['douban_user_id']
+class wb_auth:
+    def GET(self):
+        url = ''
+        t1 = (SOCIALOAUTH_SITES[0], )
+        socialsites = SocialSites(t1)
+        for s in socialsites.list_sites_class():
+            site = socialsites.get_site_object_by_class(s)
+            url = site.authorize_url
+        raise web.seeother(url)
+        return url
+    POST = GET
 
-        #这里数据库中的oauth_ser_user_id字段需要加上来自哪个平台的前缀, 以保证在整张表中的唯一性
-        oauth_server_user_id    = ('douban-%s' % server_user_id)
+class wb_callback:
+    def GET(self):
+        sitename = 'wb_callback'
+        code = web.input().get('code')
+        logger = web.ctx.environ['wsgilog.logger']
+        if code is None:
+            logger.warning("wb guale guale guale, no code")
+        socialsites = SocialSites(SOCIALOAUTH_SITES)
+        s = socialsites.get_site_object_by_name(sitename)
+        try:
+            s.get_access_token(code)
+        except SocialAPIError as e:
+            logger = web.ctx.environ['wsgilog.logger']
+            logger.warning("wb guale guale guale, get_token_error")
+
+        logger.warning('haha success uid:%s' % s.uid)
+        logger.warning('dir(s):%s' % dir(s))
+        session = web.config._session
+        session.from_where = 'weibo'
+        oauth_server_user_id = ('weibo-%s' % s.uid)
 
         oauth_c = model.OauthClass()
         oauth_id, oauth_profile_id = oauth_c.getBindUserId(oauth_server_user_id)
-        session = web.config._session
+        profile_id = session.profile_id
 
-
-        ###
-        ### 此段逻辑有些混乱, 需要再看看
-        ###
-        ### 豆瓣来请求我
-        ###
-        if oauth_id is None and oauth_profile_id is None:
-            #该用户的第三方账户尚未绑定本地账号, 转跳到绑定页面绑定之
-            session.oauth_access_token      = oauth_access_token
-            session.oauth_expires           = oauth_expires
-            session.oauth_server_user_id    = oauth_server_user_id
-            session.from_where              = 'douban'
-            session.bind_cnt                = -1
-            raise web.seeother('/otherpassportbind')
-        else:
-            #该用户的第三方账号已经绑定本地账号
-            if session.login and session.profile_id != oauth_profile_id:
-                #试图将一个三方账号重复绑定, 这种情况直接拒绝
-                raise web.seeother('fault.html')
-            else:
-                #登录已经存在的账户, 刷新session, 重定向到主页君即可
-                session.login = True
-                session.profile_id = oauth_profile_id
+        if (not oauth_id is None) and (not oauth_profile_id is None):
+            if profile_id == 0:
+                session.profile_id  = oauth_profile_id
+                session.login       = True
                 raise web.seeother('/welcome')
 
-    def GET(self):
-        getdata = web.input()
-        code = getdata.get('code')
-        
-        return self.getTokenAndExpires(code = code)
-        #return 'authorize return your code: %s' % code
+        session.oauth_access_token      = s.access_token
+        session.oauth_server_user_id    = oauth_server_user_id
+        session.oauth_expires           = s.expires_in
+        raise web.seeother('otherpassportbind?profile_id=%d' % session.profile_id)
 
+        
 class otherpassportbind:
     def check_session(self):
         session = web.config._session
-        if session.bind_cnt == 0:
-            raise web.seeother('fault.html')
         return session
     def incBindCnt(self, profile_id):
         try:
@@ -226,13 +245,15 @@ class otherpassportbind:
         return True
     def GET(self):
         session = self.check_session()
-        if not session.login:
+        data = web.input()
+        profile_id = int(data.get('profile_id'))
+        if profile_id == 0:
             #如果不存在本地账号
             tt = Template(filename = './template/otherpassportbind.html')
             return tt.render(from_where = session.from_where)
         else:
             #如果已经存在本地账号, 则将本地账号的绑定值增加
-            if self.incBindCnt(session.profile_id):
+            if self.incBindCnt(profile_id):
                 return '绑定第三方账号成功'
             else:
                 return '绑定第三方账号失败, 请重试'
